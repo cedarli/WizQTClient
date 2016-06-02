@@ -193,23 +193,23 @@ bool CThumbIndex::UpdateAbstract(const WIZABSTRACT &abstractNew, const CString& 
 
         // process thumbnail
         QImage img;
-        if (width >= 120 && height >= 120) {
+        if (width >= nThumbnailPixmapMaxWidth && height >= nThumbnailPixmapMaxWidth) {
             if (width > height) {
-                img = abstractNew.image.scaledToHeight(120, Qt::SmoothTransformation);
-                img = img.copy((img.width() - 120)/2, 0, 120, 120);
+                img = abstractNew.image.scaledToHeight(nThumbnailPixmapMaxWidth, Qt::SmoothTransformation);
+                img = img.copy((img.width() - nThumbnailPixmapMaxWidth)/2, 0, nThumbnailPixmapMaxWidth, nThumbnailPixmapMaxWidth);
             } else {
-                img = abstractNew.image.scaledToWidth(120, Qt::SmoothTransformation);
-                img = img.copy(0, (img.height() - 120)/2, 120, 120);
+                img = abstractNew.image.scaledToWidth(nThumbnailPixmapMaxWidth, Qt::SmoothTransformation);
+                img = img.copy(0, (img.height() - nThumbnailPixmapMaxWidth)/2, nThumbnailPixmapMaxWidth, nThumbnailPixmapMaxWidth);
             }
-        } else if (width > 120 || height > 120) {
-            img = abstractNew.image.scaled(120, 120, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        } else if (width > nThumbnailPixmapMaxWidth || height > nThumbnailPixmapMaxWidth) {
+            img = abstractNew.image.scaled(nThumbnailPixmapMaxWidth, nThumbnailPixmapMaxWidth, Qt::KeepAspectRatio, Qt::SmoothTransformation);
         } else {
             img = abstractNew.image;
         }
 
         if (img.isNull())
         {
-            TOLOG(_T("Faile to scale image to abstract"));
+            TOLOG(_T("Failed to scale image to abstract"));
             return false;
         }
         //
@@ -217,7 +217,7 @@ bool CThumbIndex::UpdateAbstract(const WIZABSTRACT &abstractNew, const CString& 
         buffer.open(QIODevice::WriteOnly);
         if (!img.save(&buffer, "JPG"))
         {
-            TOLOG(_T("Faile to save abstract image data to buffer"));
+            TOLOG(_T("Failed to save abstract image data to buffer"));
             return false;
         }
         buffer.close();

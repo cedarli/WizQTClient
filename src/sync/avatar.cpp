@@ -33,11 +33,17 @@ AvatarDownloader::AvatarDownloader(QObject* parent)
 void AvatarDownloader::download(const QString& strUserGUID)
 {
     m_strCurrentUser = strUserGUID;
-    QString strUrl = ApiEntry::avatarDownloadUrl(strUserGUID);
+#ifdef Q_OS_LINUX
+    QString strUrl = CommonApiEntry::avatarDownloadUrl(strUserGUID);
+#else
+    QString standGID = QUrl::toPercentEncoding(strUserGUID);
+    QString strUrl = CommonApiEntry::avatarDownloadUrl(standGID);
+#endif
     if (strUrl.isEmpty()) {
         return;
     }
 
+    qDebug() << "downloader start to download : " << m_strCurrentUser;
     QNetworkReply* reply = m_net->get(QNetworkRequest(strUrl));
     connect(reply, SIGNAL(finished()), SLOT(on_queryUserAvatar_finished()));
 }
@@ -45,17 +51,18 @@ void AvatarDownloader::download(const QString& strUserGUID)
 void AvatarDownloader::on_queryUserAvatar_finished()
 {
     QNetworkReply* reply = qobject_cast<QNetworkReply *>(sender());
-    reply->deleteLater();
 
     if (reply->error()) {
         qDebug() << "[AvatarHost]Error occured: " << reply->errorString();
         fetchUserAvatarEnd(false);
+        reply->deleteLater();
         return;
     }
 
     // cause we use "default", redirection may occur
     QVariant possibleRedirectUrl = reply->attribute(QNetworkRequest::RedirectionTargetAttribute);
     m_urlRedirectedTo = redirectUrl(possibleRedirectUrl.toUrl(), m_urlRedirectedTo);
+
 
     if(!m_urlRedirectedTo.isEmpty()) {
         qDebug() << "[AvatarHost]fetching redirected, url: "
@@ -68,6 +75,7 @@ void AvatarDownloader::on_queryUserAvatar_finished()
 
         // read and save avatar
         QByteArray bReply = reply->readAll();
+        reply->deleteLater();
 
         if (!save(m_strCurrentUser, bReply)) {
             qDebug() << "[AvatarHost]failed: unable to save user avatar, guid: " << m_strCurrentUser;
@@ -98,6 +106,10 @@ void AvatarDownloader::fetchUserAvatarEnd(bool bSucceed)
 bool AvatarDownloader::save(const QString& strUserGUID, const QByteArray& bytes)
 {
     QString strFileName = Utils::PathResolve::avatarPath() + strUserGUID + ".png";
+    if (QFile::exists(strFileName)) {
+        ::WizDeleteFile(strFileName);
+        qDebug() << "[AvatarHost]avatar file exists , remove it :" << !QFile::exists(strFileName);
+    }
     QImage img = QImage::fromData(bytes);
 
     return img.save(strFileName);
@@ -135,29 +147,10 @@ bool AvatarHostPrivate::isFileExists(const QString& strUserID)
     return QFile::exists(strFile);
 }
 
-bool AvatarHostPrivate::isNeedUpdate(const QString& strUserID)
+bool AvatarHostPrivate::loadCache(const QString& strUserID)
 {
     QString strFilePath = Utils::PathResolve::avatarPath() + strUserID + ".png";
-    if (!QFile::exists(strFilePath)) {
-        return true;
-    }
-
-    QPixmap pm(strFilePath);
-    QFileInfo info(strFilePath);
-    QDateTime tCreated = info.created();
-    QDateTime tNow = QDateTime::currentDateTime();
-    if (tCreated.daysTo(tNow) >= 1 || pm.isNull()) { // download avatar before yesterday or pixmap is not valid
-        return true;
-    }
-
-    return false;
-}
-
-void AvatarHostPrivate::loadCache(const QString& strUserID)
-{
-    QString strFilePath = Utils::PathResolve::avatarPath() + strUserID + ".png";
-    //qDebug() << "[AvatarHost]load avatar: " << strFilePath;
-    loadCacheFromFile(keyFromUserID(strUserID), strFilePath);
+    return loadCacheFromFile(keyFromUserID(strUserID), strFilePath);
 }
 
 
@@ -171,6 +164,18 @@ QPixmap AvatarHostPrivate::loadOrg(const QString& strUserID)
     //
     QString defaultFilePath = Utils::PathResolve::skinResourcesPath("default") + "avatar_default.png";
     return QPixmap(defaultFilePath);
+}
+
+void AvatarHostPrivate::addToDownloadList(const QString& strUserID)
+{
+    if (!m_listUser.contains(strUserID))
+    {
+        m_listUser.append(strUserID);
+    }
+    if (!m_thread->isRunning())
+    {
+        m_thread->start(QThread::IdlePriority);
+    }
 }
 
 bool AvatarHostPrivate::customSizeAvatar(const QString& strUserID, int width, int height, QString& strFilePath)
@@ -192,13 +197,13 @@ void AvatarHostPrivate::loadCacheDefault()
     loadCacheFromFile(defaultKey(), Utils::PathResolve::skinResourcesPath("default") + "avatar_default.png");
 }
 
-void AvatarHostPrivate::loadCacheFromFile(const QString& key, const QString& strFilePath)
+bool AvatarHostPrivate::loadCacheFromFile(const QString& key, const QString& strFilePath)
 {
     QPixmap pixmap(strFilePath);
 
     if(pixmap.isNull()) {
         qDebug() << "[AvatarHost]failed to load cache: " << strFilePath;
-        return;
+        return false;
     }
 
     //
@@ -206,20 +211,23 @@ void AvatarHostPrivate::loadCacheFromFile(const QString& key, const QString& str
     pixmap = AvatarHost::circleImage(pixmap, sz.width(), sz.height());
     //
     if (pixmap.isNull())
-        return;
+        return false;
 
     Q_ASSERT(!pixmap.isNull());
 
     if (!QPixmapCache::insert(key, pixmap)) {
         qDebug() << "[AvatarHost]failed to insert cache: " << strFilePath;
-        return;
+        return false;
     }
 
-    //qDebug() << "[AvatarHost]loaded: " << key;
+    return true;
 }
 
 QString AvatarHostPrivate::keyFromUserID(const QString& strUserID) const
 {
+    if (strUserID.isEmpty())
+        return defaultKey();
+
     return "WizService::Avatar::" + strUserID;
 }
 
@@ -254,7 +262,9 @@ bool AvatarHostPrivate::avatar(const QString& strUserID, QPixmap* pixmap)
         return true;
     }
 
-    load(strUserID, false);
+    if (!strUserID.isEmpty()) {
+        load(strUserID);
+    }
 
     if (QPixmapCache::find(defaultKey(), pixmap)) {
         return true;
@@ -272,43 +282,56 @@ bool AvatarHostPrivate::avatar(const QString& strUserID, QPixmap* pixmap)
 
 QPixmap AvatarHostPrivate::orgAvatar(const QString& strUserID)
 {
-    return loadOrg(strUserID, false);
-}
-
-
-QPixmap AvatarHostPrivate::loadOrg(const QString& strUserID, bool bForce)
-{
-    if (isNeedUpdate(strUserID) || bForce) {
-        if (!m_listUser.contains(strUserID) && strUserID != m_strUserCurrent) {
-            m_listUser.append(strUserID);
-            m_thread->start(QThread::IdlePriority);
-        }
-
-        return QPixmap();
-    }
+//    return loadOrg(strUserID, false);
     return loadOrg(strUserID);
 }
 
-void AvatarHostPrivate::load(const QString& strUserID, bool bForce)
+
+//QPixmap AvatarHostPrivate::loadOrg(const QString& strUserID, bool bForce)
+//{
+//    if (bForce) {
+//        if (!m_listUser.contains(strUserID) && strUserID != m_strCurrentDownloadingUser) {
+//            m_listUser.append(strUserID);
+//            m_thread->start(QThread::IdlePriority);
+//        }
+//    }
+//    return loadOrg(strUserID);
+//}
+
+void AvatarHostPrivate::load(const QString& strUserID)
 {
-    if (isNeedUpdate(strUserID) || bForce) {
-        if (!m_listUser.contains(strUserID) && strUserID != m_strUserCurrent) {
-            m_listUser.append(strUserID);
-            m_thread->start(QThread::IdlePriority);
-        }
-
-        return;
-    }
-
+    //
     QPixmap pm;
-    if (!QPixmapCache::find(keyFromUserID(strUserID), pm)) {
-        loadCache(strUserID);
-        Q_EMIT q->loaded(strUserID);
-    }
+    if (!QPixmapCache::find(keyFromUserID(strUserID), pm))
+    {
+        if (loadCache(strUserID))
+        {
+            Q_EMIT q->loaded(strUserID);
+        }
+        else
+        {
+            QString defaultFilePath = Utils::PathResolve::skinResourcesPath("default") + "avatar_default.png";
+            loadCacheFromFile(keyFromUserID(strUserID), defaultFilePath);
+            Q_EMIT q->loaded(strUserID);            
+
+
+            // can find item, download from server
+            addToDownloadList(strUserID);
+        }
+    }    
+
+}
+
+void AvatarHostPrivate::reload(const QString& strUserID)
+{    
+    addToDownloadList(strUserID);
 }
 
 void AvatarHostPrivate::download_impl()
 {
+    if (!m_strCurrentDownloadingUser.isEmpty())
+        return;
+
     if (m_listUser.isEmpty()) {
         qDebug() << "[AvatarHost]download pool is clean, thread: "
                  << QThread::currentThreadId();
@@ -317,10 +340,11 @@ void AvatarHostPrivate::download_impl()
         return;
     }
 
-    m_strUserCurrent = m_listUser.takeFirst();
+    m_strCurrentDownloadingUser = m_listUser.takeFirst();
 
-    if (!QMetaObject::invokeMethod(m_downloader, "download",
-                                   Q_ARG(QString, m_strUserCurrent))) {
+
+    if (!QMetaObject::invokeMethod(m_downloader, "download", Qt::QueuedConnection,
+                                   Q_ARG(QString, m_strCurrentDownloadingUser))) {
         qDebug() << "[AvatarHost]failed: unable to invoke download!";
     }
 }
@@ -332,12 +356,14 @@ void AvatarHostPrivate::on_thread_started()
 
 void AvatarHostPrivate::on_downloaded(QString strUserID, bool bSucceed)
 {
-    if (bSucceed) {
-        m_strUserCurrent.clear(); // Clear current otherwise download twice will be failed
+    if (bSucceed)
+    {
         loadCache(strUserID);
-        Q_EMIT q->loaded(strUserID);
-    }
+        Q_EMIT q->loaded(strUserID);        
+    }    
 
+    //  下载列表中的下一个头像
+    m_strCurrentDownloadingUser.clear();
     download_impl();
 }
 
@@ -365,10 +391,14 @@ AvatarHost* AvatarHost::instance()
     return m_instance;
 }
 
-// if bForce == true, download it from server and update cache, default is false
-void AvatarHost::load(const QString& strUserID, bool bForce)
+void AvatarHost::load(const QString& strUserID)
 {
-    d->load(strUserID, bForce);
+    d->load(strUserID);
+}
+
+void AvatarHost::reload(const QString& strUserID)
+{
+    d->reload(strUserID);
 }
 
 // retrieve pixmap from cache, return default avatar if not exist
@@ -392,7 +422,7 @@ bool AvatarHost::isLoaded(const QString& strUserID)
 
 bool AvatarHost::isFileExists(const QString& strUserID)
 {
-    d->isFileExists(strUserID);
+    return d->isFileExists(strUserID);
 }
 
 // For user want to retrive avatar from global pixmap cache

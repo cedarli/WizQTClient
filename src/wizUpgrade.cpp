@@ -4,7 +4,6 @@
 #include "utils/logger.h"
 #include "sync/apientry.h"
 
-
 #if defined(Q_OS_MAC)
 #define strUpgradeUrlParam "/download?product=wiznote&client=macos"
 #elif defined(Q_OS_LINUX)
@@ -18,14 +17,21 @@
 #endif // Q_OS_MAC
 
 CWizUpgrade::CWizUpgrade(QObject *parent) :
-    QObject(parent)
+    QThread(parent)
 {
     connect(&m_timerCheck, SIGNAL(timeout()), SLOT(on_timerCheck_timeout()));
 }
 
+CWizUpgrade::~CWizUpgrade()
+{
+    quit();
+}
+
 void CWizUpgrade::startCheck()
 {
-    m_timerCheck.start(60 * 1000);
+    m_timerCheck.start(10 * 1000);
+    if (isRunning())
+        start();
 }
 
 void CWizUpgrade::on_timerCheck_timeout()
@@ -33,9 +39,14 @@ void CWizUpgrade::on_timerCheck_timeout()
     beginCheck();
 }
 
+void CWizUpgrade::run()
+{
+    exec();
+}
+
 void CWizUpgrade::beginCheck()
 {
-    if (!QMetaObject::invokeMethod(this, "check")) {
+    if (!QMetaObject::invokeMethod(this, "checkUpgrade")) {
         TOLOG("Invoke check of upgrade failed");
     }
 
@@ -44,15 +55,15 @@ void CWizUpgrade::beginCheck()
 
 QString CWizUpgrade::getWhatsNewUrl()
 {
-    return WizService::ApiEntry::changeLogUrl();
+    return WizService::WizApiEntry::standardCommandUrl("changelog");
 }
 
-void CWizUpgrade::check()
+void CWizUpgrade::checkUpgrade()
 {
-    QString strApiUrl = WizService::ApiEntry::standardCommandUrl("download_server");
+    QString strApiUrl = WizService::WizApiEntry::standardCommandUrl("download_server");
 
     if (!m_net) {
-        m_net = new QNetworkAccessManager();
+        m_net = new QNetworkAccessManager(this);
     }
 
     QNetworkReply* reply = m_net->get(QNetworkRequest(strApiUrl));
@@ -116,18 +127,19 @@ void CWizUpgrade::on_checkUpgrade_finished()
         QDate dateLocal = fi.created().date();
 
         if (dateUpgrade > dateLocal) {
-            TOLOG("INFO: Upgrade is avaliable, version time:" + dateUpgrade.toString());
+            TOLOG(QObject::tr("INFO: Upgrade is avaliable, version time: %1").arg(dateUpgrade.toString()));
             Q_EMIT checkFinished(true);
         } else {
-            TOLOG("INFO: Local version is up to date");
+            TOLOG(QObject::tr("INFO: Local version is up to date"));
             Q_EMIT checkFinished(false);
         }
     } else {
-        TOLOG("ERROR: Check upgrade failed");
+        TOLOG(QObject::tr("ERROR: Check upgrade failed"));
         Q_EMIT checkFinished(false);
     }
 
     reply->deleteLater();
+    quit();
 }
 
 QUrl CWizUpgrade::redirectUrl(QUrl const &possible_redirect_url, \

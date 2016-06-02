@@ -37,18 +37,32 @@ install from [PPA](https://launchpad.net/~wiznote-team/+archive/ppa) is much mor
     $ sudo apt-get update
     $ sudo apt-get install wiznote
 
-Also, App Store is not so far!
 
-### Arch-Linux
+### Fedora 22+
 
-install from offical repo:
+    $ dnf install dnf-plugins-core
+    $ dnf copr enable mosquito/wiznote
+    $ dnf install wiznote   # Stable version 
+    Or
+    $ dnf install wiznote-beta    # Development version
 
-    $ pacman -S wiznote
+Thanks for mosquito's contribution, [more Fedora/CentOS soft.](https://copr.fedorainfracloud.org/coprs/mosquito/)
 
 
-### Fedora
+### Fedora 21/RHEL/CentOS 7
 
-Wow, we have not adopted to this distro yet. volunteers is strongly encouraged!
+    $ yum install yum-plugin-copr 
+    $ yum copr enable mosquito/wiznote
+    $ yum install wiznote     # Stable version  
+    Or
+    $ yum install wiznote-beta    # Development version
+
+If it comes with an error that cannot install yum-plugin-copr, you need to add [repo info](https://copr.fedorainfracloud.org/coprs/mosquito/wiznote/repo/epel-7/mosquito-wiznote-epel-7.repo) to your repo list in file `/etc/yum.repos.d/epel.repo`, or download the repo file to repos directory.
+Here is the way of download the repo file:
+
+	$ cd /etc/yum.repos.d/
+	$ sudo wget https://copr.fedorainfracloud.org/coprs/mosquito/wiznote/repo/epel-7/mosquito-wiznote-epel-7.repo
+	$ sudo yum install wiznote
 
 
 ### others

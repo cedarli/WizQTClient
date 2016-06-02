@@ -12,13 +12,20 @@ class CWizExplorerApp;
 class CWizDatabase;
 class CWizUserAvatarDownloaderHost;
 
+enum WizDocumentListItemType
+{
+    WizDocumentListType_Document = QListWidgetItem::UserType + 1,
+    WizDocumentListType_Section
+};
+
 struct WizDocumentListViewItemData
 {
     int nType;
     WIZDOCUMENTDATA doc;
     WIZABSTRACT thumb;
 
-    QString strInfo; // for second line info drawing (auto change when sorting type change)
+    QString location;    // use to sort by location
+    QStringList infoList; // for second line info drawing (auto change when sorting type change)
 
     // only used for group or message document
     qint64 nMessageId;
@@ -26,7 +33,54 @@ struct WizDocumentListViewItemData
     QString strAuthorId; // for request author avatar
 };
 
-class CWizDocumentListViewItem : public QObject, public QListWidgetItem
+struct WizDocumentListViewSectionData
+{
+    QDate date;
+    QPair<int, int> sizePair;
+    QString strInfo;
+};
+
+
+class CWizDocumentListViewBaseItem : public QObject, public QListWidgetItem
+{
+    Q_OBJECT
+public:
+    explicit CWizDocumentListViewBaseItem(QObject* parent, WizDocumentListItemType type);
+
+    virtual void setSortingType(int type);
+    virtual void setLeadInfoState(int state);
+
+    // drawing
+    virtual void draw(QPainter* p, const QStyleOptionViewItemV4* vopt, int nViewType) const {}
+
+protected:
+    int m_nSortingType;      // upercase : -  decrease : +
+    int m_nLeadInfoState;
+};
+
+class CWizDocumentListViewDocumentItem;
+class CWizDocumentListViewSectionItem : public CWizDocumentListViewBaseItem
+{
+    Q_OBJECT
+public:
+    explicit CWizDocumentListViewSectionItem(const WizDocumentListViewSectionData& data, const QString& text, int docCount);
+    const WizDocumentListViewSectionData& sectionData() const { return m_data; }
+
+    // used for sorting
+    virtual bool operator<(const QListWidgetItem &other) const;
+
+    virtual void draw(QPainter* p, const QStyleOptionViewItemV4* vopt, int nViewType) const;
+
+private:
+    bool compareWithDocumentItem(const CWizDocumentListViewDocumentItem* docItem) const;
+
+private:
+    WizDocumentListViewSectionData m_data;
+    QString m_text;
+    int m_documentCount;
+};
+
+class CWizDocumentListViewDocumentItem : public CWizDocumentListViewBaseItem
 {
     Q_OBJECT
 
@@ -37,14 +91,17 @@ public:
         TypeMessage
     };
 
-    explicit CWizDocumentListViewItem(CWizExplorerApp& app,
+    explicit CWizDocumentListViewDocumentItem(CWizExplorerApp& app,
                                       const WizDocumentListViewItemData& data);
 
-    void setSortingType(int type);
+    virtual void setSortingType(int type);
+    virtual void setLeadInfoState(int state);
 
-    const WizDocumentListViewItemData& data() { return m_data; }
+    const WizDocumentListViewItemData& itemData() { return m_data; }
     const WIZDOCUMENTDATA& document() const { return m_data.doc; }
     int itemType() const { return m_data.nType; }
+    int documentSize() const;
+    QString documentLocation() const;
     void reload(CWizDatabase& db);
 
     const QImage& avatar(const CWizDatabase& db);
@@ -61,6 +118,17 @@ public:
     void setNeedUpdate() const;
     QString cacheKey() const;
 
+    bool isSpecialFocus() const;
+    void setSpecialFocused(bool isSpecialFocus);
+
+    void updateDocumentUnreadCount();
+
+Q_SIGNALS:
+    void thumbnailReloaded();
+
+private Q_SLOTS:
+    void on_thumbnailReloaded();
+
 private:
     void draw_impl(QPainter* p, const QStyleOptionViewItemV4* vopt, int nItemType, int nViewType) const;
     void drawPrivateSummaryView_impl(QPainter* p, const QStyleOptionViewItemV4* vopt) const;
@@ -70,24 +138,37 @@ private:
     void drawOneLineView_impl(QPainter* p, const  QStyleOptionViewItemV4* vopt) const;
     void drawSyncStatus(QPainter* p, const QStyleOptionViewItemV4* vopt, int nViewType) const;
 
+    QRect drawItemBackground(QPainter* p, const QRect& rect, bool selected, bool focused) const;
+
+    bool isAvatarNeedUpdate(const QString& strFileName);
+    bool isContainsAttachment() const;
+
+    int badgeType(bool isSummaryView = false) const;
+
+    //bool adjust(const QListWidgetItem &other) const;
+
+    bool compareWithSectionItem(const CWizDocumentListViewSectionItem* secItem) const;
+
+    void updateDocumentLocationData();
+
+    bool needDrawDocumentLocation() const;
+
+    void updateInfoList();
+
 private:
     CWizExplorerApp& m_app;
-    WizDocumentListViewItemData m_data;
-    int m_nSortingType;
+    WizDocumentListViewItemData m_data;   
 
     int m_nSize;
     QString m_strTags;
     const QString& tags();
     const QString& tagTree();
 
-    bool isAvatarNeedUpdate(const QString& strFileName);
-    bool isContainsAttachment() const;
 
-private Q_SLOTS:
-    void on_thumbnailReloaded();
+    bool m_specialFocused;
+    bool m_documentUnread;
 
-Q_SIGNALS:
-    void thumbnailReloaded();
 };
+
 
 #endif // WIZDOCUMENTLISTVIEWITEM_H

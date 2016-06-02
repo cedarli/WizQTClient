@@ -6,6 +6,7 @@
 #include "core_global.h"
 
 struct WIZDOCUMENTDATA;
+class QWebFrame;
 
 namespace Core {
 class INoteView;
@@ -13,6 +14,7 @@ class INoteView;
 namespace Internal {
 class MainWindow;
 }
+
 
 class CORE_EXPORT ICore : public QObject
 {
@@ -29,11 +31,13 @@ public:
     static void emitViewNoteRequested(INoteView* view, const WIZDOCUMENTDATA& doc);
     static void emitViewNoteLoaded(INoteView* view, const WIZDOCUMENTDATA& doc, bool bOk);
     static void emitCloseNoteRequested(INoteView* view);
+    static void emitMarkdownSettingChanged();
 
 Q_SIGNALS:
     void viewNoteRequested(Core::INoteView* view, const WIZDOCUMENTDATA& doc);
     void viewNoteLoaded(Core::INoteView* view, const WIZDOCUMENTDATA& doc, bool bOk);
     void closeNoteRequested(Core::INoteView* view);
+    void markdownSettingChanged();
 };
 
 } // namespace Core

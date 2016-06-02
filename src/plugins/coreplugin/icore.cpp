@@ -46,5 +46,10 @@ void ICore::emitCloseNoteRequested(INoteView *view)
     Q_EMIT m_instance->closeNoteRequested(view);
 }
 
+void ICore::emitMarkdownSettingChanged()
+{
+    Q_EMIT m_instance->markdownSettingChanged();
+}
+
 
 } // namespace Core
